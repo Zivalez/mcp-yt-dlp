@@ -5,7 +5,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, copyFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
@@ -20,24 +20,37 @@ const PORT = Number(process.env.PORT) || 3000;
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS) || 60_000;
 const YTDLP_MAX_BUFFER = Number(process.env.YTDLP_MAX_BUFFER) || 32 * 1024 * 1024; // 32MB
-// Path cookies file (Netscape format) untuk bypass bot-check YouTube. Optional.
-// Atau set YTDLP_COOKIES_CONTENT berisi isi file cookies (lebih mudah via env di Dokploy).
-let YTDLP_COOKIES = process.env.YTDLP_COOKIES || "";
-if (!YTDLP_COOKIES && process.env.YTDLP_COOKIES_CONTENT) {
-  try {
-    const dir = mkdtempSync(join(tmpdir(), "ytdlp-"));
-    const file = join(dir, "cookies.txt");
-    writeFileSync(file, process.env.YTDLP_COOKIES_CONTENT, { mode: 0o600 });
-    YTDLP_COOKIES = file;
-    console.log(`[cookies] wrote env cookies to ${file}`);
-  } catch (e) {
-    console.error("[cookies] failed to write cookies from env:", e.message);
+// Cookies: yt-dlp butuh file WRITABLE (akan write-back cookies saat selesai).
+// File mount Docker biasanya read-only untuk user non-root, jadi selalu copy ke /tmp.
+// Sumber cookies (urutan prioritas):
+//   1. YTDLP_COOKIES_CONTENT (isi file cookies via env)
+//   2. YTDLP_COOKIES (path ke file cookies di disk)
+let YTDLP_COOKIES = "";
+try {
+  const cookieDir = mkdtempSync(join(tmpdir(), "ytdlp-"));
+  const cookieFile = join(cookieDir, "cookies.txt");
+  if (process.env.YTDLP_COOKIES_CONTENT) {
+    writeFileSync(cookieFile, process.env.YTDLP_COOKIES_CONTENT, { mode: 0o600 });
+    YTDLP_COOKIES = cookieFile;
+    console.log(`[cookies] loaded from YTDLP_COOKIES_CONTENT -> ${cookieFile}`);
+  } else if (process.env.YTDLP_COOKIES && existsSync(process.env.YTDLP_COOKIES)) {
+    copyFileSync(process.env.YTDLP_COOKIES, cookieFile);
+    YTDLP_COOKIES = cookieFile;
+    console.log(
+      `[cookies] copied ${process.env.YTDLP_COOKIES} -> ${cookieFile} (writable)`
+    );
+  } else {
+    console.log("[cookies] none configured (YTDLP_COOKIES / YTDLP_COOKIES_CONTENT empty)");
   }
+} catch (e) {
+  console.error("[cookies] setup failed:", e.message);
 }
-// Extra args yt-dlp (dipisah spasi). Default: pakai player client yang lebih jarang ke-rate-limit di VPS.
+// Extra args yt-dlp (dipisah spasi).
+// Tanpa cookies: pakai client alternatif untuk bypass bot-check.
+// Dengan cookies: kosong (pakai default yt-dlp yang lebih andal).
 const YTDLP_EXTRA_ARGS = (
-  process.env.YTDLP_EXTRA_ARGS ||
-  "--extractor-args youtube:player_client=tv_embedded,web_safari,mweb"
+  process.env.YTDLP_EXTRA_ARGS ??
+  (YTDLP_COOKIES ? "" : "--extractor-args youtube:player_client=tv_embedded,web_safari,mweb")
 )
   .trim()
   .split(/\s+/)
