@@ -114,6 +114,27 @@ function createServer() {
   );
 
   // --------------------------------------------------------------------------
+  // Tool: debug (versi yt-dlp, config saat ini)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "debug-info",
+    {
+      title: "Debug Info",
+      description: "Info debug: versi yt-dlp, extra args, status cookies.",
+      inputSchema: {},
+    },
+    async () => {
+      const v = await runYtDlp(["--version"]);
+      return jsonResult({
+        ytdlp_version: v.ok ? v.stdout.trim() : `ERROR: ${v.error}`,
+        extra_args: YTDLP_EXTRA_ARGS,
+        cookies_path: YTDLP_COOKIES || null,
+        cookies_configured: Boolean(YTDLP_COOKIES),
+      });
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // Tool: get-video-info
   // --------------------------------------------------------------------------
   server.registerTool(
