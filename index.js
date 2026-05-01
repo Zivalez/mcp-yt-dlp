@@ -5,6 +5,9 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { writeFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import express from "express";
 import { z } from "zod";
 
@@ -18,7 +21,19 @@ const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS) || 60_000;
 const YTDLP_MAX_BUFFER = Number(process.env.YTDLP_MAX_BUFFER) || 32 * 1024 * 1024; // 32MB
 // Path cookies file (Netscape format) untuk bypass bot-check YouTube. Optional.
-const YTDLP_COOKIES = process.env.YTDLP_COOKIES || "";
+// Atau set YTDLP_COOKIES_CONTENT berisi isi file cookies (lebih mudah via env di Dokploy).
+let YTDLP_COOKIES = process.env.YTDLP_COOKIES || "";
+if (!YTDLP_COOKIES && process.env.YTDLP_COOKIES_CONTENT) {
+  try {
+    const dir = mkdtempSync(join(tmpdir(), "ytdlp-"));
+    const file = join(dir, "cookies.txt");
+    writeFileSync(file, process.env.YTDLP_COOKIES_CONTENT, { mode: 0o600 });
+    YTDLP_COOKIES = file;
+    console.log(`[cookies] wrote env cookies to ${file}`);
+  } catch (e) {
+    console.error("[cookies] failed to write cookies from env:", e.message);
+  }
+}
 // Extra args yt-dlp (dipisah spasi). Default: pakai player client yang lebih jarang ke-rate-limit di VPS.
 const YTDLP_EXTRA_ARGS = (
   process.env.YTDLP_EXTRA_ARGS ||
