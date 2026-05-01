@@ -1,100 +1,156 @@
 # mcp-yt-dlp
 
-MCP (Model Context Protocol) server yang membungkus [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) sebagai **tools** yang dapat dipanggil LLM (Claude, ChatGPT, Cursor, Windsurf, dsb.).
+> An MCP (Model Context Protocol) server that exposes [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) as LLM-callable **tools** (Claude, ChatGPT, Cursor, Windsurf, and any MCP-compatible client).
 
-Mendukung **Streamable HTTP** (rekomendasi) sekaligus **legacy SSE** untuk klien lama.
+<p align="center">
+  <a href="./README.md"><img src="https://img.shields.io/badge/Lang-English-blue?style=for-the-badge" alt="English"></a>
+  <a href="./README.id.md"><img src="https://img.shields.io/badge/Bahasa-Indonesia-red?style=for-the-badge" alt="Bahasa Indonesia"></a>
+</p>
+
+---
+
+## What is this?
+
+MCP is a standard for connecting LLM applications to external tools. This server wraps the popular `yt-dlp` CLI so an LLM can call tools like **"fetch this YouTube video's metadata"** or **"transcribe this video"** via a structured API, without the LLM needing shell access.
+
+Supports both **Streamable HTTP** (modern, recommended) and **legacy SSE** transports — deployable to any Docker host (Dokploy, Coolify, Railway, Fly.io, bare VPS).
 
 ## Tools
 
-| Tool | Deskripsi | Status di VPS datacenter |
-|------|-----------|--------------------------|
-| `get-video-info` | Metadata video (judul, channel, durasi, views, deskripsi, tags). | ✅ Jalan (butuh cookies) |
-| `search-videos` | Pencarian YouTube berdasarkan kata kunci. | ✅ Jalan |
-| `get-playlist-info` | Daftar video dalam playlist (flat). | ✅ Jalan |
-| `get-subtitles` | Transkrip/subtitle (manual atau auto-generated) sebagai teks. | ✅ Jalan |
-| `get-formats` | Daftar format yang tersedia. | ⚠️ Sering kosong di IP datacenter (LOGIN_REQUIRED/PO Token) |
-| `get-direct-url` | URL streaming langsung untuk format tertentu. | ⚠️ Sama dengan get-formats |
-| `debug-info` | Versi yt-dlp, config, dan probe verbose untuk diagnosa. | ✅ |
-| `download-video` | Download video/audio ke server, return URL unduh publik (auto-hapus setelah TTL). | ⚠️ Jalan untuk non-YouTube; YouTube kena PO Token |
+| Tool | Description | Status on datacenter IP |
+|------|-------------|-------------------------|
+| `get-video-info` | Video metadata (title, channel, duration, views, description, tags). | ✅ Works (with cookies) |
+| `search-videos` | YouTube keyword search. | ✅ Works |
+| `get-playlist-info` | List videos in a playlist (flat, no per-video detail). | ✅ Works |
+| `get-subtitles` | Manual or auto-generated subtitles as plain text. | ✅ Works |
+| `get-formats` | Available formats (resolutions, codecs, bitrate, size). | ⚠️ Often empty on datacenter IPs (see below) |
+| `get-direct-url` | Direct stream URL for a given format. | ⚠️ Same as `get-formats` |
+| `download-video` | Download video/audio to server, return a public download URL (auto-expires). | ⚠️ Works for non-YouTube; YouTube hits PO Token wall |
+| `debug-info` | yt-dlp version, current config, optional verbose probe. | ✅ |
 
-### Kenapa `get-formats`/`get-direct-url` bermasalah?
+## ⚠️ Important Clarification: YouTube Limitations on VPS
 
-YouTube menerapkan **PO Token (Proof of Origin)** dan memberi response `LOGIN_REQUIRED` untuk request dari IP datacenter, walaupun sudah pakai cookies. Tools metadata tetap jalan karena YouTube memberi info dasar, tapi **format URLs di-strip**.
+YouTube actively detects and throttles datacenter IPs. On most VPS providers, you will see:
 
-Untuk mengaktifkan tools format/direct-url, butuh salah satu:
-- **PO Token Provider** (mis. [`bgutil-ytdlp-pot-provider`](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) sebagai sidecar container)
-- **Residential proxy** (Bright Data, Webshare, dsb.)
-- **Akun YouTube berumur 1+ tahun** dengan riwayat tonton aktif (sering, tapi tidak selalu, bypass LOGIN_REQUIRED)
+- **`LOGIN_REQUIRED`** responses even when cookies are attached
+- **Empty `formats` array** — YouTube strips format URLs and signals that a *PO Token (Proof of Origin)* is required
+- Metadata (title, uploader, description) still returns fine
+
+This is **not a bug in this server** — it is YouTube's anti-bot policy. Fully-working YouTube download from a VPS in 2026 generally requires one of:
+
+1. **A PO Token provider** running alongside the server (e.g. [`bgutil-ytdlp-pot-provider`](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) as a sidecar container).
+2. **A residential proxy** (Bright Data, Webshare, etc.).
+3. **Long-lived YouTube account cookies** (account aged 1+ year with watch history) — often bypasses `LOGIN_REQUIRED`, not guaranteed.
+
+**For personal use**, running `yt-dlp` directly on your local machine remains the most reliable path. This MCP server is most valuable for its **metadata / search / transcript** tools, which an LLM can use to reason about videos without the LLM itself needing download capability.
+
+## Architecture
+
+```
+┌────────────┐   Streamable HTTP    ┌────────────────┐   execFile    ┌────────┐
+│  LLM host  │ ───────────────────► │  Express app   │ ────────────► │ yt-dlp │
+│ (Claude /  │    /mcp (sessions)   │ (Node 20, MCP  │               └────────┘
+│  Windsurf) │ ◄─────────────────── │   SDK v1.x)    │                   │
+└────────────┘   SSE events back    └────────────────┘                   ▼
+                                      │ /files/*     ◄── /app/downloads (volume)
+                                      │ /health
+                                      ▼
+                                   Public URL
+```
 
 ## Endpoints
 
-- `POST/GET/DELETE /mcp` — Streamable HTTP transport (modern).
-- `GET /sse` + `POST /messages?sessionId=...` — Legacy SSE transport.
-- `GET /health` — Health check.
+- `POST/GET/DELETE /mcp` — Streamable HTTP transport (modern, recommended).
+- `GET /sse` + `POST /messages?sessionId=…` — legacy HTTP+SSE transport.
+- `GET /health` — liveness probe.
+- `GET /files/<name>` — download files produced by `download-video` (force-attachment, auto-expiring).
 
-## Menjalankan secara lokal
+## Run locally
 
-Prasyarat: **Node.js 20+**, **Python 3**, **yt-dlp**, **ffmpeg**.
+Requirements: **Node.js 20+**, **Python 3**, **yt-dlp**, **ffmpeg**.
 
 ```bash
 npm install
 npm start
 ```
 
-Server jalan di `http://localhost:3000`.
+Server listens on `http://localhost:3000`.
 
 ## Docker
 
 ```bash
 docker build -t mcp-yt-dlp .
-docker run --rm -p 3000:3000 mcp-yt-dlp
+docker run --rm -p 3000:3000 \
+  -e PUBLIC_BASE_URL=http://localhost:3000 \
+  -v ytdlp-downloads:/app/downloads \
+  mcp-yt-dlp
 ```
 
-## Konfigurasi (env vars)
+Mount a persistent volume at `/app/downloads` so downloaded files survive restarts until the TTL expires.
 
-| Variable | Default | Keterangan |
-|----------|---------|------------|
-| `PORT` | `3000` | Port HTTP. |
-| `YTDLP_BIN` | `yt-dlp` | Path biner yt-dlp. |
-| `YTDLP_TIMEOUT_MS` | `60000` | Timeout per perintah yt-dlp (ms). |
-| `YTDLP_MAX_BUFFER` | `33554432` | Buffer maksimum stdout (bytes). |
-| `YTDLP_EXTRA_ARGS` | `--extractor-args youtube:player_client=tv_embedded,web_embedded,tv,mweb` | Argumen tambahan yt-dlp (bypass bot-check). |
-| `YTDLP_COOKIES` | — | Path cookies file (Netscape format). |
-| `YTDLP_COOKIES_CONTENT` | — | Alternatif: isi cookies lewat env var langsung. |
-| `DOWNLOADS_DIR` | `/app/downloads` | Folder penyimpanan hasil download-video. |
-| `DOWNLOADS_TTL_MINUTES` | `120` | Umur file download sebelum auto-hapus. |
-| `DOWNLOAD_TIMEOUT_MS` | `600000` | Timeout satu download (ms). |
-| `PUBLIC_BASE_URL` | `http://localhost:3000` | Base URL publik untuk generate download link. **Wajib set di production** (mis. `https://ytdlp.zvlz.me`). |
+## Configuration (environment variables)
 
-## Konfigurasi MCP client
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3000` | HTTP port. |
+| `YTDLP_BIN` | `yt-dlp` | Path to the yt-dlp binary. |
+| `YTDLP_TIMEOUT_MS` | `60000` | Timeout per metadata yt-dlp invocation (ms). |
+| `YTDLP_MAX_BUFFER` | `33554432` | Max stdout buffer (bytes). |
+| `YTDLP_EXTRA_ARGS` | `--extractor-args youtube:player_client=tv_embedded,web_embedded,tv,mweb` | Extra yt-dlp args (bot-check bypass for YouTube). |
+| `YTDLP_COOKIES` | — | Path to a Netscape-format cookies file. |
+| `YTDLP_COOKIES_CONTENT` | — | Alternative: cookies file content as an env var (content is written to a writable tmp file at startup). |
+| `DOWNLOADS_DIR` | `/app/downloads` | Directory for `download-video` output. Should be a persistent volume. |
+| `DOWNLOADS_TTL_MINUTES` | `120` | Auto-delete files older than this (minutes). |
+| `DOWNLOAD_TIMEOUT_MS` | `600000` | Timeout for a single download (ms). |
+| `PUBLIC_BASE_URL` | `http://localhost:3000` | Public base URL used to build download links. **Must be set in production** (e.g. `https://ytdlp.example.com`). |
 
-### Claude Desktop / Windsurf (remote, Streamable HTTP)
+## MCP client configuration
+
+### Claude Desktop / Windsurf (remote, Streamable HTTP — recommended)
 
 ```json
 {
   "mcpServers": {
     "yt-dlp": {
-      "url": "http://localhost:3000/mcp"
+      "serverUrl": "https://ytdlp.example.com/mcp"
     }
   }
 }
 ```
 
-### Klien lama (SSE)
+### Legacy clients (SSE)
 
 ```json
 {
   "mcpServers": {
     "yt-dlp": {
-      "url": "http://localhost:3000/sse"
+      "serverUrl": "https://ytdlp.example.com/sse"
     }
   }
 }
 ```
 
-## Catatan keamanan
+## Cookies for YouTube
 
-- Input URL **tidak di-interpolasi ke shell** — menggunakan `execFile` (aman dari command injection).
-- Setiap session mendapat instance `McpServer` terpisah.
-- Container dijalankan sebagai user non-root (`node`).
-- Untuk eksposur publik, **wajib** taruh di belakang reverse proxy + auth (server ini tidak punya autentikasi bawaan).
+To partially bypass the bot-check on a VPS, export cookies from a browser where a dedicated YouTube account is logged in:
+
+1. Install the **"Get cookies.txt LOCALLY"** browser extension.
+2. Log into YouTube with a dedicated account (**never your main account**).
+3. Export cookies as Netscape format.
+4. Either:
+   - Mount the file to `/app/cookies.txt` and set `YTDLP_COOKIES=/app/cookies.txt`, **or**
+   - Paste the file contents into `YTDLP_COOKIES_CONTENT`.
+
+> ⚠️ **Security**: Cookies grant access to that YouTube session. Never commit them to git, never share, and use a burner account.
+
+## Security notes
+
+- URL inputs are **never interpolated into a shell** — this server uses `execFile` with arg arrays (immune to command injection).
+- Each MCP session gets its own `McpServer` instance (no cross-session leakage).
+- Container runs as a non-root user (`node`).
+- There is **no built-in authentication**. For public exposure, put the service behind a reverse proxy with auth, a WAF, or an IP allowlist.
+- Downloaded files are served from `/files/*` with forced `Content-Disposition: attachment`, random UUID filenames, and a TTL. Anyone with the URL can download until expiry.
+
+## License
+
+MIT.
