@@ -2,3 +2,11 @@ node_modules
 npm-debug.log
 .env
 .env.*
+
+# Downloaded media
+*.mp4
+*.webm
+*.mkv
+*.m4a
+*.mp3
+*.part

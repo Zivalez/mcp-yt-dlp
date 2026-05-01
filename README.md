@@ -15,6 +15,7 @@ Mendukung **Streamable HTTP** (rekomendasi) sekaligus **legacy SSE** untuk klien
 | `get-formats` | Daftar format yang tersedia. | ⚠️ Sering kosong di IP datacenter (LOGIN_REQUIRED/PO Token) |
 | `get-direct-url` | URL streaming langsung untuk format tertentu. | ⚠️ Sama dengan get-formats |
 | `debug-info` | Versi yt-dlp, config, dan probe verbose untuk diagnosa. | ✅ |
+| `download-video` | Download video/audio ke server, return URL unduh publik (auto-hapus setelah TTL). | ⚠️ Jalan untuk non-YouTube; YouTube kena PO Token |
 
 ### Kenapa `get-formats`/`get-direct-url` bermasalah?
 
@@ -57,6 +58,13 @@ docker run --rm -p 3000:3000 mcp-yt-dlp
 | `YTDLP_BIN` | `yt-dlp` | Path biner yt-dlp. |
 | `YTDLP_TIMEOUT_MS` | `60000` | Timeout per perintah yt-dlp (ms). |
 | `YTDLP_MAX_BUFFER` | `33554432` | Buffer maksimum stdout (bytes). |
+| `YTDLP_EXTRA_ARGS` | `--extractor-args youtube:player_client=tv_embedded,web_embedded,tv,mweb` | Argumen tambahan yt-dlp (bypass bot-check). |
+| `YTDLP_COOKIES` | — | Path cookies file (Netscape format). |
+| `YTDLP_COOKIES_CONTENT` | — | Alternatif: isi cookies lewat env var langsung. |
+| `DOWNLOADS_DIR` | `/app/downloads` | Folder penyimpanan hasil download-video. |
+| `DOWNLOADS_TTL_MINUTES` | `120` | Umur file download sebelum auto-hapus. |
+| `DOWNLOAD_TIMEOUT_MS` | `600000` | Timeout satu download (ms). |
+| `PUBLIC_BASE_URL` | `http://localhost:3000` | Base URL publik untuk generate download link. **Wajib set di production** (mis. `https://ytdlp.zvlz.me`). |
 
 ## Konfigurasi MCP client
 

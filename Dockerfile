@@ -20,6 +20,9 @@ RUN npm install --omit=dev && npm cache clean --force
 # Copy source
 COPY index.js ./
 
+# Siapkan folder download (bisa di-mount volume dari host)
+RUN mkdir -p /app/downloads && chown -R node:node /app
+
 # Jalankan sebagai non-root
 USER node
 

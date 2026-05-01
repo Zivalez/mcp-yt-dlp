@@ -5,7 +5,16 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { writeFileSync, mkdtempSync, copyFileSync, existsSync } from "node:fs";
+import {
+  writeFileSync,
+  mkdtempSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import express from "express";
@@ -20,6 +29,18 @@ const PORT = Number(process.env.PORT) || 3000;
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS) || 60_000;
 const YTDLP_MAX_BUFFER = Number(process.env.YTDLP_MAX_BUFFER) || 32 * 1024 * 1024; // 32MB
+// Download destination (harus writable dan idealnya mounted volume untuk persist)
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || "/app/downloads";
+// TTL otomatis hapus file lama (menit)
+const DOWNLOADS_TTL_MS =
+  (Number(process.env.DOWNLOADS_TTL_MINUTES) || 120) * 60_000;
+// Base URL publik untuk generate download link (tanpa trailing slash)
+const PUBLIC_BASE_URL = (
+  process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`
+).replace(/\/$/, "");
+// Timeout download lebih panjang daripada operasi info
+const DOWNLOAD_TIMEOUT_MS =
+  Number(process.env.DOWNLOAD_TIMEOUT_MS) || 10 * 60_000; // 10 menit
 // Cookies: yt-dlp butuh file WRITABLE (akan write-back cookies saat selesai).
 // File mount Docker biasanya read-only untuk user non-root, jadi selalu copy ke /tmp.
 // Sumber cookies (urutan prioritas):
@@ -102,6 +123,50 @@ function formatDuration(seconds) {
   return h > 0
     ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
     : `${m}:${String(s).padStart(2, "0")}`;
+}
+
+// ============================================================================
+// Setup download directory + periodic cleanup
+// ============================================================================
+try {
+  mkdirSync(DOWNLOADS_DIR, { recursive: true });
+  console.log(
+    `[downloads] dir=${DOWNLOADS_DIR} ttl=${DOWNLOADS_TTL_MS / 60_000}min base=${PUBLIC_BASE_URL}`
+  );
+} catch (e) {
+  console.error("[downloads] mkdir failed:", e.message);
+}
+
+function cleanupDownloads() {
+  try {
+    const now = Date.now();
+    for (const f of readdirSync(DOWNLOADS_DIR)) {
+      try {
+        const p = join(DOWNLOADS_DIR, f);
+        const st = statSync(p);
+        if (st.isFile() && now - st.mtimeMs > DOWNLOADS_TTL_MS) {
+          unlinkSync(p);
+          console.log(`[cleanup] deleted ${f}`);
+        }
+      } catch {}
+    }
+  } catch (e) {
+    console.error("[cleanup] error:", e.message);
+  }
+}
+setInterval(cleanupDownloads, 10 * 60_000); // tiap 10 menit
+cleanupDownloads(); // sekali di startup
+
+function humanSize(bytes) {
+  if (!bytes) return "0 B";
+  const u = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(2)} ${u[i]}`;
 }
 
 // ============================================================================
@@ -471,6 +536,87 @@ function createServer() {
     }
   );
 
+  // --------------------------------------------------------------------------
+  // Tool: download-video
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "download-video",
+    {
+      title: "Download Video",
+      description:
+        "Download video ke server dan kembalikan URL unduh publik. File auto-hapus setelah TTL (default 2 jam). Untuk audio saja, set audio_only=true.",
+      inputSchema: {
+        url: z.string().url().describe("URL video"),
+        format: z
+          .string()
+          .optional()
+          .default("bv*[height<=720]+ba/b[height<=720]")
+          .describe("Format selector yt-dlp (diabaikan kalau audio_only=true)"),
+        audio_only: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Ekstrak audio saja (mp3)"),
+      },
+    },
+    async ({ url, format, audio_only }) => {
+      const id = randomUUID();
+      const outputTpl = join(DOWNLOADS_DIR, `${id}.%(ext)s`);
+      const args = audio_only
+        ? [
+            "-x",
+            "--audio-format",
+            "mp3",
+            "--no-playlist",
+            "--no-warnings",
+            "-o",
+            outputTpl,
+            url,
+          ]
+        : [
+            "-f",
+            format,
+            "--merge-output-format",
+            "mp4",
+            "--no-playlist",
+            "--no-warnings",
+            "-o",
+            outputTpl,
+            url,
+          ];
+      // timeout panjang untuk download
+      const finalArgs = [
+        ...YTDLP_EXTRA_ARGS,
+        ...(YTDLP_COOKIES ? ["--cookies", YTDLP_COOKIES] : []),
+        ...args,
+      ];
+      try {
+        await execFileAsync(YTDLP_BIN, finalArgs, {
+          timeout: DOWNLOAD_TIMEOUT_MS,
+          maxBuffer: YTDLP_MAX_BUFFER,
+          windowsHide: true,
+        });
+      } catch (err) {
+        return errorResult(err.stderr?.toString?.() || err.message || String(err));
+      }
+      // Cari file hasil download (diawali dengan UUID)
+      const files = readdirSync(DOWNLOADS_DIR).filter((f) => f.startsWith(id));
+      if (files.length === 0) {
+        return errorResult("Download selesai tapi file tidak ditemukan.");
+      }
+      const file = files[0];
+      const st = statSync(join(DOWNLOADS_DIR, file));
+      return jsonResult({
+        filename: file,
+        size_bytes: st.size,
+        size_human: humanSize(st.size),
+        download_url: `${PUBLIC_BASE_URL}/files/${encodeURIComponent(file)}`,
+        expires_in_minutes: DOWNLOADS_TTL_MS / 60_000,
+        note: "File akan otomatis dihapus setelah TTL. Segera download via browser atau curl.",
+      });
+    }
+  );
+
   return server;
 }
 
@@ -488,6 +634,23 @@ const transports = {};
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", uptime: process.uptime(), version: "1.1.0" });
 });
+
+// Static route untuk serve hasil download
+app.use(
+  "/files",
+  express.static(DOWNLOADS_DIR, {
+    dotfiles: "deny",
+    fallthrough: false,
+    index: false,
+    setHeaders: (res, path) => {
+      // Force download (attachment) agar browser tidak memutar inline
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${encodeURIComponent(path.split(/[\\/]/).pop())}"`
+      );
+    },
+  })
+);
 
 // ----------------------------------------------------------------------------
 // Streamable HTTP endpoint (recommended): /mcp
