@@ -1,9 +1,19 @@
 {
   "name": "mcp-yt-dlp",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "description": "MCP server yang membungkus yt-dlp sebagai tools untuk LLM (info video, format, subtitle, search, playlist).",
   "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "latest",
-    "express": "latest"
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
   }
 }
