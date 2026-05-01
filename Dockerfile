@@ -8,7 +8,7 @@ ENV NODE_ENV=production \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 python3-pip ffmpeg curl ca-certificates && \
-    python3 -m pip install --break-system-packages --no-cache-dir -U yt-dlp && \
+    python3 -m pip install --break-system-packages --no-cache-dir -U "yt-dlp[default]" && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

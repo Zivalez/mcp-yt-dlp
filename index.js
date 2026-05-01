@@ -59,10 +59,11 @@ const YTDLP_EXTRA_ARGS = (
 // ============================================================================
 // Helper: jalankan yt-dlp dengan aman (tanpa shell interpolation)
 // ============================================================================
-async function runYtDlp(args) {
+async function runYtDlp(args, { ignoreNoFormats = false } = {}) {
   const finalArgs = [
     ...YTDLP_EXTRA_ARGS,
     ...(YTDLP_COOKIES ? ["--cookies", YTDLP_COOKIES] : []),
+    ...(ignoreNoFormats ? ["--ignore-no-formats-error"] : []),
     ...args,
   ];
   try {
@@ -125,7 +126,10 @@ function createServer() {
       },
     },
     async ({ url }) => {
-      const res = await runYtDlp(["-J", "--no-warnings", "--no-playlist", url]);
+      const res = await runYtDlp(
+        ["-J", "--no-warnings", "--no-playlist", url],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
       try {
         const d = JSON.parse(res.stdout);
@@ -168,7 +172,10 @@ function createServer() {
       },
     },
     async ({ url }) => {
-      const res = await runYtDlp(["-J", "--no-warnings", "--no-playlist", url]);
+      const res = await runYtDlp(
+        ["-J", "--no-warnings", "--no-playlist", url],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
       try {
         const d = JSON.parse(res.stdout);
@@ -243,7 +250,10 @@ function createServer() {
       },
     },
     async ({ url, lang, auto }) => {
-      const res = await runYtDlp(["-J", "--no-warnings", "--no-playlist", url]);
+      const res = await runYtDlp(
+        ["-J", "--no-warnings", "--no-playlist", url],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
       let info;
       try {
@@ -315,12 +325,10 @@ function createServer() {
       },
     },
     async ({ query, limit }) => {
-      const res = await runYtDlp([
-        `ytsearch${limit}:${query}`,
-        "-J",
-        "--flat-playlist",
-        "--no-warnings",
-      ]);
+      const res = await runYtDlp(
+        [`ytsearch${limit}:${query}`, "-J", "--flat-playlist", "--no-warnings"],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
       try {
         const d = JSON.parse(res.stdout);
@@ -352,14 +360,17 @@ function createServer() {
       },
     },
     async ({ url, limit }) => {
-      const res = await runYtDlp([
-        "-J",
-        "--flat-playlist",
-        "--no-warnings",
-        "--playlist-end",
-        String(limit),
-        url,
-      ]);
+      const res = await runYtDlp(
+        [
+          "-J",
+          "--flat-playlist",
+          "--no-warnings",
+          "--playlist-end",
+          String(limit),
+          url,
+        ],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
       try {
         const d = JSON.parse(res.stdout);
