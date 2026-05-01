@@ -6,14 +6,24 @@ Mendukung **Streamable HTTP** (rekomendasi) sekaligus **legacy SSE** untuk klien
 
 ## Tools
 
-| Tool | Deskripsi |
-|------|-----------|
-| `get-video-info` | Metadata video (judul, channel, durasi, views, deskripsi, tags). |
-| `get-formats` | Daftar format yang tersedia (resolusi, codec, bitrate, ukuran). |
-| `get-direct-url` | URL streaming langsung untuk format tertentu. |
-| `get-subtitles` | Transkrip/subtitle (manual atau auto-generated) sebagai teks. |
-| `search-videos` | Pencarian YouTube berdasarkan kata kunci. |
-| `get-playlist-info` | Daftar video dalam playlist (flat). |
+| Tool | Deskripsi | Status di VPS datacenter |
+|------|-----------|--------------------------|
+| `get-video-info` | Metadata video (judul, channel, durasi, views, deskripsi, tags). | ✅ Jalan (butuh cookies) |
+| `search-videos` | Pencarian YouTube berdasarkan kata kunci. | ✅ Jalan |
+| `get-playlist-info` | Daftar video dalam playlist (flat). | ✅ Jalan |
+| `get-subtitles` | Transkrip/subtitle (manual atau auto-generated) sebagai teks. | ✅ Jalan |
+| `get-formats` | Daftar format yang tersedia. | ⚠️ Sering kosong di IP datacenter (LOGIN_REQUIRED/PO Token) |
+| `get-direct-url` | URL streaming langsung untuk format tertentu. | ⚠️ Sama dengan get-formats |
+| `debug-info` | Versi yt-dlp, config, dan probe verbose untuk diagnosa. | ✅ |
+
+### Kenapa `get-formats`/`get-direct-url` bermasalah?
+
+YouTube menerapkan **PO Token (Proof of Origin)** dan memberi response `LOGIN_REQUIRED` untuk request dari IP datacenter, walaupun sudah pakai cookies. Tools metadata tetap jalan karena YouTube memberi info dasar, tapi **format URLs di-strip**.
+
+Untuk mengaktifkan tools format/direct-url, butuh salah satu:
+- **PO Token Provider** (mis. [`bgutil-ytdlp-pot-provider`](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) sebagai sidecar container)
+- **Residential proxy** (Bright Data, Webshare, dsb.)
+- **Akun YouTube berumur 1+ tahun** dengan riwayat tonton aktif (sering, tapi tidak selalu, bypass LOGIN_REQUIRED)
 
 ## Endpoints
 
