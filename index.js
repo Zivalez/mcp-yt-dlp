@@ -120,16 +120,51 @@ function createServer() {
     "debug-info",
     {
       title: "Debug Info",
-      description: "Info debug: versi yt-dlp, extra args, status cookies.",
-      inputSchema: {},
+      description:
+        "Info debug: versi yt-dlp, extra args, status cookies. Kalau URL diisi, juga run verbose probe dan return tail stderr + format count.",
+      inputSchema: {
+        url: z.string().url().optional().describe("URL video opsional untuk probe verbose"),
+      },
     },
-    async () => {
+    async ({ url }) => {
       const v = await runYtDlp(["--version"]);
+      let probe = null;
+      if (url) {
+        const p = await execFileAsync(
+          YTDLP_BIN,
+          [
+            ...YTDLP_EXTRA_ARGS,
+            ...(YTDLP_COOKIES ? ["--cookies", YTDLP_COOKIES] : []),
+            "-v",
+            "--no-warnings",
+            "--ignore-no-formats-error",
+            "--no-playlist",
+            "-J",
+            url,
+          ],
+          { timeout: YTDLP_TIMEOUT_MS, maxBuffer: YTDLP_MAX_BUFFER }
+        ).catch((e) => ({ stdout: "", stderr: e.stderr?.toString?.() || e.message }));
+        // stderr dari -v sangat panjang — ambil 100 baris terakhir
+        const stderr = (p.stderr || "").toString();
+        const stderrTail = stderr.split(/\r?\n/).slice(-100).join("\n");
+        let info = null;
+        try {
+          const d = JSON.parse(p.stdout || "{}");
+          info = {
+            title: d.title,
+            extractor: d.extractor_key,
+            formats_count: (d.formats || []).length,
+            format_ids: (d.formats || []).map((f) => f.format_id).slice(0, 30),
+          };
+        } catch {}
+        probe = { info, stderr_tail: stderrTail };
+      }
       return jsonResult({
         ytdlp_version: v.ok ? v.stdout.trim() : `ERROR: ${v.error}`,
         extra_args: YTDLP_EXTRA_ARGS,
         cookies_path: YTDLP_COOKIES || null,
         cookies_configured: Boolean(YTDLP_COOKIES),
+        probe,
       });
     }
   );
