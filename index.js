@@ -17,13 +17,28 @@ const PORT = Number(process.env.PORT) || 3000;
 const YTDLP_BIN = process.env.YTDLP_BIN || "yt-dlp";
 const YTDLP_TIMEOUT_MS = Number(process.env.YTDLP_TIMEOUT_MS) || 60_000;
 const YTDLP_MAX_BUFFER = Number(process.env.YTDLP_MAX_BUFFER) || 32 * 1024 * 1024; // 32MB
+// Path cookies file (Netscape format) untuk bypass bot-check YouTube. Optional.
+const YTDLP_COOKIES = process.env.YTDLP_COOKIES || "";
+// Extra args yt-dlp (dipisah spasi). Default: pakai player client yang lebih jarang ke-rate-limit di VPS.
+const YTDLP_EXTRA_ARGS = (
+  process.env.YTDLP_EXTRA_ARGS ||
+  "--extractor-args youtube:player_client=tv_embedded,web_safari,mweb"
+)
+  .trim()
+  .split(/\s+/)
+  .filter(Boolean);
 
 // ============================================================================
 // Helper: jalankan yt-dlp dengan aman (tanpa shell interpolation)
 // ============================================================================
 async function runYtDlp(args) {
+  const finalArgs = [
+    ...YTDLP_EXTRA_ARGS,
+    ...(YTDLP_COOKIES ? ["--cookies", YTDLP_COOKIES] : []),
+    ...args,
+  ];
   try {
-    const { stdout } = await execFileAsync(YTDLP_BIN, args, {
+    const { stdout } = await execFileAsync(YTDLP_BIN, finalArgs, {
       timeout: YTDLP_TIMEOUT_MS,
       maxBuffer: YTDLP_MAX_BUFFER,
       windowsHide: true,
