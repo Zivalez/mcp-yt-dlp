@@ -46,11 +46,12 @@ try {
   console.error("[cookies] setup failed:", e.message);
 }
 // Extra args yt-dlp (dipisah spasi).
-// Selalu pakai player_client alternatif: YouTube sering strip format URLs dari client
-// 'default' pada IP datacenter, walaupun cookies ada. Client 'tv' & 'ios' lebih andal.
+// Selalu pakai player_client yang TIDAK butuh PO Token (Proof of Origin).
+// YouTube strip format URLs dari client 'web/default/android' di IP datacenter.
+// Client 'tv_embedded' & 'web_embedded' bebas PO token.
 const YTDLP_EXTRA_ARGS = (
   process.env.YTDLP_EXTRA_ARGS ??
-  "--extractor-args youtube:player_client=default,tv,ios,web_safari,mweb"
+  "--extractor-args youtube:player_client=tv_embedded,web_embedded,tv,mweb"
 )
   .trim()
   .split(/\s+/)
