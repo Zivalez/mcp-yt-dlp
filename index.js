@@ -216,17 +216,39 @@ function createServer() {
       },
     },
     async ({ url, format }) => {
-      const res = await runYtDlp([
-        "-f",
-        format,
-        "-g",
-        "--no-warnings",
-        "--no-playlist",
-        url,
-      ]);
+      // Pakai -J (dump JSON) lalu pilih format di JS.
+      // Lebih andal daripada -g yang kena bot-check lebih sering.
+      const res = await runYtDlp(
+        ["-J", "-f", format, "--no-warnings", "--no-playlist", url],
+        { ignoreNoFormats: true }
+      );
       if (!res.ok) return errorResult(res.error);
-      const urls = res.stdout.trim().split(/\r?\n/).filter(Boolean);
-      return jsonResult({ format, urls });
+      let d;
+      try {
+        d = JSON.parse(res.stdout);
+      } catch (e) {
+        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+      }
+      // Format yang terpilih ada di `requested_formats` (kalau merge) atau `url` (single).
+      const picks = d.requested_formats || (d.url ? [d] : []);
+      const urls = picks.map((f) => f.url).filter(Boolean);
+      if (urls.length === 0) {
+        return errorResult(
+          `Tidak ada URL untuk format '${format}'. Coba cek dengan tool get-formats.`
+        );
+      }
+      return jsonResult({
+        format,
+        title: d.title,
+        urls,
+        details: picks.map((f) => ({
+          format_id: f.format_id,
+          ext: f.ext,
+          resolution: f.resolution,
+          vcodec: f.vcodec,
+          acodec: f.acodec,
+        })),
+      });
     }
   );
 
