@@ -186,9 +186,9 @@ function createServer() {
     {
       title: "Debug Info",
       description:
-        "Info debug: versi yt-dlp, extra args, status cookies. Kalau URL diisi, juga run verbose probe dan return tail stderr + format count.",
+        "Diagnostic info: yt-dlp version, extra args, cookies status. If a URL is provided, also runs a verbose probe and returns the stderr tail and format count.",
       inputSchema: {
-        url: z.string().url().optional().describe("URL video opsional untuk probe verbose"),
+        url: z.string().url().optional().describe("Optional video URL for the verbose probe."),
       },
     },
     async ({ url }) => {
@@ -242,9 +242,9 @@ function createServer() {
     {
       title: "Get Video Info",
       description:
-        "Ambil metadata video (judul, channel, durasi, views, deskripsi, dll) dari URL yang didukung yt-dlp (YouTube, TikTok, Twitter, dll).",
+        "Fetch video metadata (title, channel, duration, views, description, etc.) from any URL supported by yt-dlp (YouTube, TikTok, Twitter/X, Vimeo, and ~1800 other sites).",
       inputSchema: {
-        url: z.string().url().describe("URL video"),
+        url: z.string().url().describe("Video URL."),
       },
     },
     async ({ url }) => {
@@ -275,7 +275,7 @@ function createServer() {
         };
         return jsonResult(summary);
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
     }
   );
@@ -288,9 +288,9 @@ function createServer() {
     {
       title: "Get Available Formats",
       description:
-        "Daftar format yang tersedia untuk video (resolusi, codec, bitrate, ukuran). Berguna untuk memilih format download.",
+        "List the available formats for a video (resolution, codec, bitrate, size). Useful for picking a format before downloading.",
       inputSchema: {
-        url: z.string().url().describe("URL video"),
+        url: z.string().url().describe("Video URL."),
       },
     },
     async ({ url }) => {
@@ -314,7 +314,7 @@ function createServer() {
         }));
         return jsonResult({ title: d.title, formats });
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
     }
   );
@@ -327,14 +327,14 @@ function createServer() {
     {
       title: "Get Direct Stream URL",
       description:
-        "Ambil URL streaming langsung untuk format tertentu. Default 'best' (video+audio terbaik).",
+        "Get a direct streaming URL for a given format. Defaults to 'best' (best video+audio).",
       inputSchema: {
-        url: z.string().url().describe("URL video"),
+        url: z.string().url().describe("Video URL."),
         format: z
           .string()
           .optional()
           .default("best")
-          .describe("Format selector yt-dlp, mis. 'best', 'bestaudio', '137+140'"),
+          .describe("yt-dlp format selector, e.g. 'best', 'bestaudio', '137+140'."),
       },
     },
     async ({ url, format }) => {
@@ -349,14 +349,14 @@ function createServer() {
       try {
         d = JSON.parse(res.stdout);
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
       // Format yang terpilih ada di `requested_formats` (kalau merge) atau `url` (single).
       const picks = d.requested_formats || (d.url ? [d] : []);
       const urls = picks.map((f) => f.url).filter(Boolean);
       if (urls.length === 0) {
         return errorResult(
-          `Tidak ada URL untuk format '${format}'. Coba cek dengan tool get-formats.`
+          `No URL available for format '${format}'. Try the get-formats tool to inspect available formats.`
         );
       }
       return jsonResult({
@@ -382,15 +382,19 @@ function createServer() {
     {
       title: "Get Subtitles / Transcript",
       description:
-        "Ambil transkrip/subtitle video dalam bahasa tertentu. Mendukung subtitle manual dan auto-generated.",
+        "Fetch the subtitles/transcript of a video in a specific language. Supports both manual and auto-generated captions.",
       inputSchema: {
-        url: z.string().url().describe("URL video"),
-        lang: z.string().optional().default("en").describe("Kode bahasa (mis. 'en', 'id')"),
+        url: z.string().url().describe("Video URL."),
+        lang: z
+          .string()
+          .optional()
+          .default("en")
+          .describe("Language code (e.g. 'en', 'id', 'es', 'ja')."),
         auto: z
           .boolean()
           .optional()
           .default(true)
-          .describe("Izinkan auto-generated subtitle jika tidak ada manual"),
+          .describe("Fall back to auto-generated captions when no manual subtitle is available."),
       },
     },
     async ({ url, lang, auto }) => {
@@ -403,7 +407,7 @@ function createServer() {
       try {
         info = JSON.parse(res.stdout);
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
       const manual = info.subtitles?.[lang];
       const autoSub = info.automatic_captions?.[lang];
@@ -414,7 +418,7 @@ function createServer() {
           automatic: Object.keys(info.automatic_captions || {}),
         };
         return errorResult(
-          `Subtitle bahasa '${lang}' tidak tersedia. Bahasa tersedia: ${JSON.stringify(available)}`
+          `Subtitle for language '${lang}' is not available. Available languages: ${JSON.stringify(available)}`
         );
       }
       // Pilih format JSON3/srv3/vtt yang paling mudah di-parse
@@ -450,7 +454,7 @@ function createServer() {
         }
         return textResult(plain.slice(0, 50_000));
       } catch (e) {
-        return errorResult(`Gagal mengambil subtitle: ${e.message}`);
+        return errorResult(`Failed to fetch subtitle: ${e.message}`);
       }
     }
   );
@@ -462,10 +466,17 @@ function createServer() {
     "search-videos",
     {
       title: "Search YouTube Videos",
-      description: "Cari video di YouTube dengan kata kunci.",
+      description: "Search YouTube by keyword.",
       inputSchema: {
-        query: z.string().min(1).describe("Kata kunci pencarian"),
-        limit: z.number().int().min(1).max(25).optional().default(5),
+        query: z.string().min(1).describe("Search query."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(25)
+          .optional()
+          .default(5)
+          .describe("Maximum number of results to return."),
       },
     },
     async ({ query, limit }) => {
@@ -485,7 +496,7 @@ function createServer() {
         }));
         return jsonResult({ query, results: items });
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
     }
   );
@@ -497,10 +508,17 @@ function createServer() {
     "get-playlist-info",
     {
       title: "Get Playlist Info",
-      description: "Daftar video dalam sebuah playlist (flat, tidak fetch detail per video).",
+      description: "List videos in a playlist (flat — does not fetch per-video details).",
       inputSchema: {
-        url: z.string().url().describe("URL playlist"),
-        limit: z.number().int().min(1).max(200).optional().default(50),
+        url: z.string().url().describe("Playlist URL."),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .default(50)
+          .describe("Maximum number of entries to return."),
       },
     },
     async ({ url, limit }) => {
@@ -531,7 +549,7 @@ function createServer() {
           entries,
         });
       } catch (e) {
-        return errorResult(`Gagal parse output yt-dlp: ${e.message}`);
+        return errorResult(`Failed to parse yt-dlp output: ${e.message}`);
       }
     }
   );
@@ -544,19 +562,19 @@ function createServer() {
     {
       title: "Download Video",
       description:
-        "Download video ke server dan kembalikan URL unduh publik. File auto-hapus setelah TTL (default 2 jam). Untuk audio saja, set audio_only=true.",
+        "Download a video to the server and return a public download URL. Files auto-expire after the configured TTL (default: 2 hours). Set audio_only=true to extract MP3 audio instead.",
       inputSchema: {
-        url: z.string().url().describe("URL video"),
+        url: z.string().url().describe("Video URL."),
         format: z
           .string()
           .optional()
           .default("bv*[height<=720]+ba/b[height<=720]")
-          .describe("Format selector yt-dlp (diabaikan kalau audio_only=true)"),
+          .describe("yt-dlp format selector (ignored when audio_only=true)."),
         audio_only: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Ekstrak audio saja (mp3)"),
+          .describe("Extract audio only (MP3)."),
       },
     },
     async ({ url, format, audio_only }) => {
@@ -602,7 +620,7 @@ function createServer() {
       // Cari file hasil download (diawali dengan UUID)
       const files = readdirSync(DOWNLOADS_DIR).filter((f) => f.startsWith(id));
       if (files.length === 0) {
-        return errorResult("Download selesai tapi file tidak ditemukan.");
+        return errorResult("Download completed but the output file was not found.");
       }
       const file = files[0];
       const st = statSync(join(DOWNLOADS_DIR, file));
@@ -612,7 +630,7 @@ function createServer() {
         size_human: humanSize(st.size),
         download_url: `${PUBLIC_BASE_URL}/files/${encodeURIComponent(file)}`,
         expires_in_minutes: DOWNLOADS_TTL_MS / 60_000,
-        note: "File akan otomatis dihapus setelah TTL. Segera download via browser atau curl.",
+        note: "This file will be auto-deleted after the TTL expires. Download it promptly via browser or curl.",
       });
     }
   );
